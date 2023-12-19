@@ -1,0 +1,115 @@
+import cv2
+import numpy as np
+import math
+
+
+def detect_white_area(frame):
+    # Convert to HSV for better color segmentation
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Define range for white color
+    lower_white = np.array([0, 0, 100])
+    upper_white = np.array([172, 120, 255])
+
+    # Create a mask for white color
+    white_mask = cv2.inRange(hsv, lower_white, upper_white)
+
+    # Apply morphology to clean up the mask
+    kernel = np.ones((5, 5), np.uint8)
+    white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
+    white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_OPEN, kernel)
+
+    # Find contours for the white area
+    contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        # Assuming the largest contour is the white table
+        largest_contour = max(contours, key=cv2.contourArea)
+        return largest_contour
+    return None
+
+def detect_and_draw_balls(frame, color_mask, table_mask, color):
+
+    centers = []
+    radii = []
+    # Combine the table mask with the color mask
+    combined_mask = cv2.bitwise_and(color_mask, color_mask, mask=table_mask)
+
+    # Find contours for the balls
+    contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        if cv2.contourArea(contour) > 100:  # Threshold area
+            (x, y), radius = cv2.minEnclosingCircle(contour)
+            center = (int(x), int(y))
+            radius = int(radius)
+            cv2.circle(frame, center, radius, color, 2)  # Draw circle around the ball
+            centers.append(center)
+            radii.append(radius)
+    return centers, radii
+
+def calculate_distance(pt1, pt2, pixels_per_cm):
+    # Calculate the Euclidean distance between two points in pixel
+    distance_px = math.sqrt((pt1[0] - pt2[0]) ** 2 + (pt1[1] - pt2[1]) ** 2)
+    # Convert pixels to centimeters
+    distance_cm = distance_px / pixels_per_cm
+    return distance_cm
+
+# Capture video from webcam or a video file
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  
+cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Convert to HSV for better color segmentation
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Detect the white table area
+    table_contour = detect_white_area(frame)
+
+    if table_contour is not None:
+        # Create a mask from the table contour
+        table_mask = np.zeros_like(frame[:, :, 0])
+        cv2.drawContours(table_mask, [table_contour], -1, 255, -1)
+
+        # Define color range for detecting a black ball and tennis ball
+        lower_black = np.array([0, 0, 0])
+        upper_black = np.array([180, 255, 50])
+        black_mask = cv2.inRange(hsv, lower_black, upper_black)
+
+        lower_yellow = np.array([25, 50, 50])
+        upper_yellow = np.array([35, 255, 255])
+        yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+
+         # Detect and draw black balls within the white table area and get their centers and radii
+        black_ball_centers, black_ball_radii = detect_and_draw_balls(frame, black_mask, table_mask, (255, 255, 0))
+        # Detect and draw tennis balls within the white table area and get their centers and radii
+        tennis_ball_centers, tennis_ball_radii = detect_and_draw_balls(frame, yellow_mask, table_mask, (255, 0, 255))
+
+        # Draw the table contour
+        cv2.drawContours(frame, [table_contour], -1, (0, 255, 255), 3) # Yellow contour
+
+        # If both balls are detected, draw a red line between their centers and calculate the distance
+        if black_ball_centers and tennis_ball_centers:
+            # Draw the red line
+            cv2.line(frame, black_ball_centers[0], tennis_ball_centers[0], (0, 0, 255), 2)
+            # Assume the known diameter of a tennis ball is 6.7cm
+            tennis_ball_diameter_cm = 8
+            # Calculate pixels per centimeter using the first detected tennis ball
+            if tennis_ball_radii:
+                pixels_per_cm = tennis_ball_radii[0] / (tennis_ball_diameter_cm / 2)
+                # Calculate the distance between the balls
+                distance_cm = calculate_distance(black_ball_centers[0], tennis_ball_centers[0], pixels_per_cm)
+                # Display the distance on the frame
+                midpoint = ((black_ball_centers[0][0] + tennis_ball_centers[0][0]) // 2,
+                            (black_ball_centers[0][1] + tennis_ball_centers[0][1]) // 2)
+                cv2.putText(frame, f"{distance_cm:.2f} cm", midpoint, cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 255, 100), 2)
+
+    cv2.imshow('Detected Balls within White Table Area', frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
