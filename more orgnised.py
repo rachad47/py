@@ -2,9 +2,20 @@ import cv2
 import numpy as np
 import math
 
+"""
+    Detects the largest white area in the frame, which is considered the background boundary.
+    Uses HSV color space for better color segmentation and applies morphological operations 
+    to clean up the mask.
 
+    Parameters:
+    frame (np.array): The input image frame in which to detect the background boundary.
 
+    Returns:
+    np.array: The largest contour found in the frame representing the background boundary.
+    """
 def detect_backgroud_boudary(frame):
+    
+
     # Convert to HSV for better color segmentation
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     # Define range for white color
@@ -17,6 +28,7 @@ def detect_backgroud_boudary(frame):
     white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
     white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_OPEN, kernel)
     # Find contours for the white area
+    cv2.imshow('white_mask', white_mask)
     contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
         largest_contour = max(contours, key=cv2.contourArea)
@@ -24,6 +36,17 @@ def detect_backgroud_boudary(frame):
         return largest_contour
     return None
 
+
+"""
+    Detects the largest pink area within a given white boundary in the frame.
+    
+    Parameters:
+    frame (np.array): The input image frame in which to detect the pink paper.
+    white_mask (np.array): The mask representing the white area to constrain the detection.
+
+    Returns:
+    np.array: The largest contour found representing the pink paper.
+    """
 def detect_pink_paper(frame, white_mask):
      # Convert to HSV for better color segmentation
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -39,16 +62,24 @@ def detect_pink_paper(frame, white_mask):
     # Find contours of the pink paper
     contours, _ = cv2.findContours(masked_pink, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
-        # Find the largest contour
         largest_contour = max(contours, key=cv2.contourArea)
-        
-        # Optional: Approximate the contour to simplify the shape
-        epsilon = 0.01 * cv2.arcLength(largest_contour, True)
-        approx_contour = cv2.approxPolyDP(largest_contour, epsilon, True)
-
-        return approx_contour
+        cv2.drawContours(frame, [largest_contour], 0, (100, 50, 100), 2)  
+        return largest_contour
     return None
 
+
+"""
+    Detects colored spots within a specified region of the frame. This function creates 
+    a mask for the specified color and applies it to the given region mask.
+
+    Parameters:
+    frame (np.array): The input image frame in which to detect colored spots.
+    color_mask (tuple): The lower and upper color range for spot detection.
+    region_mask (np.array): The mask representing the region to constrain the detection.
+
+    Returns:
+    list: A list of contours representing the detected colored spots.
+    """
 def detect_colored_spots(frame, color_mask, region_mask):
     # Create a mask for colored spots
     colored_spots_mask = cv2.inRange(frame, color_mask[0], color_mask[1])
@@ -59,6 +90,16 @@ def detect_colored_spots(frame, color_mask, region_mask):
     cv2.drawContours(frame, contours, -1, (255, 255, 255), 1)
     return contours
 
+
+"""
+    Calculates the center (centroid) of a given contour using image moments.
+
+    Parameters:
+    contour (np.array): The contour for which to find the center.
+
+    Returns:
+    tuple: The (x, y) coordinates of the center of the contour.
+    """
 def calculate_center(contour):
     M = cv2.moments(contour)
     if M["m00"] != 0:
@@ -67,10 +108,23 @@ def calculate_center(contour):
         return (cx, cy)
     return None
 
-def draw_axes(frame, origin, y_point, label_offset=10):
+
+"""
+    Draws the X and Y axes on the frame based on the specified origin and Y direction point.
+    The X-axis is drawn perpendicular to the right of Y-axis.
+
+    Parameters:
+    frame (np.array): The image frame on which to draw the axes.
+    origin (tuple): The (x, y) coordinates of the origin of the axes.
+    y_point (tuple): The (x, y) coordinates of a point on the Y-axis.
+
+    Returns:
+    None
+    """
+def draw_axes(frame, origin, y_point):
     # Draw Y-axis as an arrow pointing to the yellow spot
     cv2.arrowedLine(frame, origin, y_point, (0, 255, 0), 2, tipLength=0.2)
-    cv2.putText(frame, 'Y', (y_point[0] + label_offset, y_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+    cv2.putText(frame, 'Y', (y_point[0] + 10, y_point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
     # Calculate the length of the Y-axis
     y_length = np.sqrt((y_point[0] - origin[0])**2 + (y_point[1] - origin[1])**2)
@@ -88,8 +142,21 @@ def draw_axes(frame, origin, y_point, label_offset=10):
 
     # Draw X-axis as an arrow of the same length as the Y-axis
     cv2.arrowedLine(frame, origin, x_point, (255, 0, 0), 2, tipLength=0.2)
-    cv2.putText(frame, 'X', (x_point[0] - label_offset, x_point[1] +10 + label_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+    cv2.putText(frame, 'X', (x_point[0] - 10, x_point[1] +20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
 
+
+"""
+    Detects balls on a table within a given color range.
+
+    Parameters:
+    frame (np.array): The image frame in which to detect the balls.
+    table_contour (np.array): The contour that defines the boundary of the table.
+    color_range (tuple): The lower and upper range for the ball color.
+    min_contour_area (int): The minimum area threshold for a contour to be considered a ball.
+
+    Returns:
+    list: A list of tuples, each containing the center coordinates and radius of a detected ball.
+    """
 def detect_balls(frame, table_contour, color_range, min_contour_area=100):
     # Convert the frame to HSV color space
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -115,6 +182,21 @@ def detect_balls(frame, table_contour, color_range, min_contour_area=100):
     
     return balls
 
+
+"""
+    Calculates the measurements (distance and angle) of detected balls from the origin.
+    The origin and Y direction are used to establish a coordinate system for measurement.
+
+    Parameters:
+    frame (np.array): The image frame for reference.
+    balls (list): A list of tuples containing the center and radius of each detected ball.
+    origin (tuple): The (x, y) coordinates of the origin of the coordinate system.
+    y_direction (tuple): The Y direction vector for establishing the coordinate system.
+    ball_diameter_cm (float): The diameter of the balls in centimeters.
+
+    Returns:
+    list: A list of tuples containing calculated measurements for each ball (distance and angle).
+    """
 def calculate_ball_measurements(frame, balls, origin, y_direction, ball_diameter_cm=7.0):
     ball_data = []
     y_length = math.sqrt(y_direction[0]**2 + y_direction[1]**2)
@@ -144,27 +226,6 @@ def calculate_ball_measurements(frame, balls, origin, y_direction, ball_diameter
 
     return ball_data
               
-def detect_center_of_axis(frame, pink_paper_mask):
-    # Convert the frame to HSV color space for better color segmentation
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-    # Define range for black color
-    lower_black = np.array([0, 0, 0])
-    upper_black = np.array([180, 255, 50])
-
-    # Create a mask for black color
-    black_mask = cv2.inRange(hsv, lower_black, upper_black)
-
-    # Apply the pink paper mask to the black mask
-    masked_black = cv2.bitwise_and(black_mask, black_mask, mask=pink_paper_mask)
-
-    # Find contours of the black spot
-    contours, _ = cv2.findContours(masked_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        # Find the largest contour which will be the black spot
-        largest_contour = max(contours, key=cv2.contourArea)
-        return calculate_center(largest_contour)
-    return None
 
 
 # Capture video from webcam or a video file
@@ -190,7 +251,7 @@ while True:
         if pink_paper_box is not None:
             pink_paper_mask = np.zeros_like(frame[:, :, 0])
             cv2.drawContours(pink_paper_mask, [pink_paper_box], 0, 255, -1)  # note that here we are drawing the box on the mask
-            cv2.drawContours(frame, [pink_paper_box], 0, (100, 50, 100), 2)  # while here we are drawing the box on the frame
+            
 
             # Detect the black spot as the origin of our coordinate system
             lower_black = np.array([0, 0, 0])
@@ -228,6 +289,7 @@ while True:
                 cv2.putText(frame, f"{distance_cm:.1f} cm", midpoint, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 100), 2)
                 cv2.putText(frame, f"{angle_degrees:.1f} degrees", (center[0] - 40, center[1] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 100, 255), 2)
 
+    
     cv2.imshow('Frame', frame)
 
     key = cv2.waitKey(1)
